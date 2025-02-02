@@ -23,6 +23,8 @@ source "$CONFIG_FILE"
 # Set some default variables if sourcing config file fails for some reason
 SELFUPGRADE=${SELFUPGRADE:-"true"}
 PORT=${PORT:-80}
+LISTEN_ADDRESS=${LISTEN_ADDRESS:-""}
+PROXY_PORT=${PROXY_PORT:-443}
 INSTALLDIR=${INSTALLDIR:-"/opt/xo"}
 BRANCH=${BRANCH:-"master"}
 INCLUDE_V6=${INCLUDE_V6:-"true"}
@@ -810,6 +812,11 @@ function InstallXO {
             sleep 2
         fi
 
+        if [[ -n "$LISTEN_ADDRESS" ]]; then
+            printinfo "Changing listen address in xo-server configuration file"
+            runcmd "sed -i \"s%^# hostname = 'localhost'%hostname = '$LISTEN_ADDRESS'%\" $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/sample.config.toml"
+        fi
+
         if [[ "$HTTPS" == "true" ]]; then
             printinfo "Enabling HTTPS in xo-server configuration file"
             # shellcheck disable=SC1117
@@ -900,7 +907,7 @@ function VerifyServiceStart {
     set -u
 
     if [[ "$XO_SVC" == "xo-proxy" ]]; then
-        local PORT="443"
+        local PORT="$PROXY_PORT"
     fi
 
     PROXY_CONFIG_UPDATED=${PROXY_CONFIG_UPDATED:-"false"}
@@ -1073,7 +1080,7 @@ EOF
     printinfo "Reloading systemd configuration"
     runcmd "/bin/systemctl daemon-reload"
 
-    # if xen orchestra proxy configuration file doesn't exist or configuration update is not disabled in xo-install.cfg, we create it
+    # if xen orchestra proxy configuration file doesn't exist we create it here
 
     if [[ ! -f "$CONFIGPATH_PROXY/.config/xo-proxy/config.toml" ]]; then
         PROXY_VM_UUID="$(dmidecode -t system | grep UUID | awk '{print $NF}')"
@@ -1088,6 +1095,10 @@ EOF
 
         printinfo "Adding authentication token to xo-proxy config"
         runcmd "sed -i \"s/^authenticationToken = .*/authenticationToken = '$PROXY_TOKEN'/\" $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
+        if [[ "$PROXY_PORT" != "443" ]]; then
+            printinfo "Updating proxy port config"
+            runcmd "sed -i \"s/port = 443/port = $PROXY_PORT/\" $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
+        fi
     fi
 
     echo
@@ -1466,6 +1477,9 @@ function StartUpScreen {
     echo -e "Basedir: ${COLOR_WHITE}$INSTALLDIR ${COLOR_N}"
     echo -e "User: ${COLOR_WHITE}$XOUSER ${COLOR_N}"
     echo -e "Port: ${COLOR_WHITE}$PORT${COLOR_N}"
+    if [[ -n "$LISTEN_ADDRESS" ]]; then
+        echo -e "Listen address: ${COLOR_WHITE}$LISTEN_ADDRESS${COLOR_N}"
+    fi
     echo -e "HTTPS: ${COLOR_WHITE}${HTTPS}${COLOR_N}"
     echo -e "Git Branch for source: ${COLOR_WHITE}$BRANCH${COLOR_N}"
     echo -e "Following plugins will be installed: ${COLOR_WHITE}$PLUGINS${COLOR_N}"
