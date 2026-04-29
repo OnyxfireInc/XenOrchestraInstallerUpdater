@@ -38,19 +38,17 @@ Supported Linux distributions and versions:
 
 - CentOS 10 Stream
 - CentOS 9 Stream
-- CentOS 8 Stream
 - AlmaLinux 10
 - AlmaLinux 9
 - AlmaLinux 8
 - Rocky Linux 10
 - Rocky Linux 9
 - Rocky Linux 8
+- Debian 13
 - Debian 12
 - Debian 11
-- Debian 10
 - Ubuntu 24.04
 - Ubuntu 22.04
-- Ubuntu 20.04
 
 NOTE: By default, libvhdi-tools is not installed on RHEL based distros; so file-level restores from delta backups within XO will not work.  However, users MAY install libvhdi-tools via a small, third-party maintained by a user of XenOrchestraInstallerUpdater specifically for XenOrchestraInstallerUpdater in order to re-enable file-level restore. To do so, set the INSTALL_EL_LIBVHDI variable to "true" in xo-install.cfg.  See: https://github.com/ronivay/XenOrchestraInstallerUpdater/pull/274
 
@@ -224,7 +222,8 @@ Built and tested on XCP-ng 8.x
 
 I run my own little implementation of automation consisting of ansible and virtual machines to test the installation on a regular basis with different operating systems. Test results are visible in badges on top of this readme.
 
-VM image is also built totally by me and distributed from webservers i maintain.
+VM image is also built from scratch by me and distributed from an object storage.
+
 
 ### Contributing
 

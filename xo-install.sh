@@ -27,7 +27,6 @@ LISTEN_ADDRESS=${LISTEN_ADDRESS:-""}
 PROXY_PORT=${PROXY_PORT:-443}
 INSTALLDIR=${INSTALLDIR:-"/opt/xo"}
 BRANCH=${BRANCH:-"master"}
-INCLUDE_V6=${INCLUDE_V6:-"false"}
 LOGPATH=${LOGPATH:-$(dirname "$(realpath "$0")")/logs}
 AUTOUPDATE=${AUTOUPDATE:-"true"}
 PRESERVE=${PRESERVE:-"3"}
@@ -59,7 +58,7 @@ YARN_NETWORK_TIMEOUT="${YARN_NETWORK_TIMEOUT:-"300000"}"
 TIME=$(date +%Y%m%d%H%M)
 LOGTIME=$(date "+%Y-%m-%d %H:%M:%S")
 LOGFILE="${LOGPATH}/xo-install.log-$TIME"
-NODEVERSION="22"
+NODEVERSION="24"
 FORCE="false"
 INTERACTIVE="false"
 SUDOERSFILE="/etc/sudoers.d/xo-server-$XOUSER"
@@ -325,11 +324,11 @@ function InstallDependenciesDeb {
     runcmd "apt-get install -y apt-transport-https ca-certificates"
     printok "Installing apt-transport-https and ca-certificates packages to support https repos"
 
-    if [[ "$OSNAME" == "Debian" ]] && [[ "$OSVERSION" =~ ^(10|11|12|13)$ ]]; then
+    if [[ "$OSNAME" == "Debian" ]] && [[ "$OSVERSION" =~ ^(11|12|13)$ ]]; then
         echo
-        printprog "Debian 10/11/12/13, so installing gnupg also"
+        printprog "Debian 11/12/13, so installing gnupg also"
         runcmd "apt-get install gnupg -y"
-        printok "Debian 10/11/12/13, so installing gnupg also"
+        printok "Debian 11/12/13, so installing gnupg also"
     fi
 
     # Debian 13 doesn't come with libfuse2 anymore
@@ -441,6 +440,10 @@ function UpdateNodeYarn {
     fi
 
     if [ "$PKG_FORMAT" == "deb" ]; then
+        if [[ "$INSTALL_REPOS" == "true" ]]; then
+            # make sure yarn repository key is up to date
+            runcmd "curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg -o /etc/apt/trusted.gpg.d/yarn.asc"
+        fi
         if [[ "${NODEV:-0}" -lt "${NODEVERSION}" ]] && [[ "$INSTALL_REPOS" == "true" ]]; then
             echo
             printprog "node.js version is ${NODEV:-"not installed"}, upgrading to ${NODEVERSION}.x"
@@ -739,7 +742,6 @@ function InstallXO {
     echo
     printprog "Running installation"
     runcmd "cd $INSTALLDIR/xo-builds/xen-orchestra-$TIME && yarn --network-timeout ${YARN_NETWORK_TIMEOUT} && yarn --network-timeout ${YARN_NETWORK_TIMEOUT} build"
-    [ "$INCLUDE_V6" == "true" ] && runcmd "cd $INSTALLDIR/xo-builds/xen-orchestra-$TIME && yarn --network-timeout ${YARN_NETWORK_TIMEOUT} run turbo run build --filter @xen-orchestra/web"
     printok "Running installation"
 
     # Install plugins (takes care of 3rd party plugins as well)
@@ -812,9 +814,6 @@ function InstallXO {
     if [[ ! -f "$CONFIGPATH/.config/xo-server/config.toml" ]] || [[ "$CONFIGUPDATE" == "true" ]]; then
 
         echo
-        printinfo "Fixing relative path to xo-web installation in xo-server configuration file"
-        # shellcheck disable=SC1117
-        runcmd "sed -i \"s%#'/any/url' = '/path/to/directory'%'/' = '$INSTALLDIR/xo-web/dist/'%\" $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/sample.config.toml"
         printinfo "Changing redis connection address in xo-server configuration file"
         runcmd "sed -i \"s%#uri = 'redis://redis.company.lan/42'%uri = 'redis://127.0.0.1:6379/0'%\" $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/sample.config.toml"
 
@@ -882,10 +881,10 @@ function InstallXO {
     # install/update is the same procedure so always symlink to most recent installation
     printinfo "Symlinking fresh xo-server install/update to $INSTALLDIR/xo-server"
     runcmd "ln -sfn $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server $INSTALLDIR/xo-server"
-    sleep 2
     printinfo "Symlinking fresh xo-web install/update to $INSTALLDIR/xo-web"
     runcmd "ln -sfn $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-web $INSTALLDIR/xo-web"
-    sleep 2
+    printinfo "Symlinking fresh xo-web-v6 install/update to $INSTALLDIR/xo-web-v6"
+    runcmd "ln -sfn $INSTALLDIR/xo-builds/xen-orchestra-$TIME/@xen-orchestra/web $INSTALLDIR/xo-web-v6"
     printinfo "Symlinking fresh xo-cli install/update to $INSTALLDIR/xo-cli"
     runcmd "ln -sfn $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-cli $INSTALLDIR/xo-cli"
     printinfo "Symlinking xo-cli script to /usr/local/bin/xo-cli"
@@ -1002,10 +1001,11 @@ function UpdateXO {
     local INSTALLATIONS="$(runcmd_stdout "find $INSTALLDIR/xo-builds/ -maxdepth 1 -type d -name \"xen-orchestra*\" -printf \"%T@ %p\\n\" | sort -n | cut -d' ' -f2- | head -n -$PRESERVE")"
     local XO_SERVER_ACTIVE="$(runcmd_stdout "readlink -e $INSTALLDIR/xo-server")"
     local XO_WEB_ACTIVE="$(runcmd_stdout "readlink -e $INSTALLDIR/xo-web")"
+    local XO_WEB_V6_ACTIVE="$(runcmd_stdout "readlink -e $INSTALLDIR/xo-web-v6")"
     local XO_PROXY_ACTIVE="$(runcmd_stdout "readlink -e $INSTALLDIR/xo-proxy")"
 
     for DELETABLE in $INSTALLATIONS; do
-        if [[ "$XO_SERVER_ACTIVE" != "${DELETABLE}"* ]] && [[ "$XO_WEB_ACTIVE" != "${DELETABLE}"* ]] && [[ "$XO_PROXY_ACTIVE" != "${DELETABLE}"* ]]; then
+        if [[ "$XO_SERVER_ACTIVE" != "${DELETABLE}"* ]] && [[ "$XO_WEB_ACTIVE" != "${DELETABLE}"* ]] && [[ "$XO_WEB_V6_ACTIVE" != "${DELETABLE}"* ]] && [[ "$XO_PROXY_ACTIVE" != "${DELETABLE}"* ]]; then
             runcmd "rm -rf $DELETABLE"
         fi
     done
@@ -1277,6 +1277,8 @@ function RollBackInstallation {
                     runcmd "ln -sfn $INSTALLATION/packages/xo-server $INSTALLDIR/xo-server"
                     printinfo "Setting $INSTALLDIR/xo-web symlink to $INSTALLATION/packages/xo-web"
                     runcmd "ln -sfn $INSTALLATION/packages/xo-web $INSTALLDIR/xo-web"
+                    printinfo "Setting $INSTALLDIR/xo-web-v6 symlink to $INSTALLATION/@xen-orchestra/web"
+                    runcmd "ln -sfn $INSTALLATION/@xen-orchestra/web $INSTALLDIR/xo-web-v6"
                     printinfo "Setting $INSTALLDIR/xo-cli symlink to $INSTALLATION/packages/xo-cli"
                     runcmd "ln -sfn $INSTALLATION/packages/xo-cli $INSTALLDIR/xo-cli"
                     echo
@@ -1349,8 +1351,8 @@ function CheckOS {
         exit 1
     fi
 
-    if [[ "$OSNAME" == "CentOS" ]] && [[ ! "$OSVERSION" =~ ^(8|9|10)$ ]]; then
-        printfail "Only CentOS 8/9/10 supported"
+    if [[ "$OSNAME" == "CentOS" ]] && [[ ! "$OSVERSION" =~ ^(9|10)$ ]]; then
+        printfail "Only CentOS 9/10 supported"
         exit 1
     fi
 
@@ -1364,13 +1366,13 @@ function CheckOS {
         exit 1
     fi
 
-    if [[ "$OSNAME" == "Debian" ]] && [[ ! "$OSVERSION" =~ ^(10|11|12|13)$ ]]; then
-        printfail "Only Debian 10/11/12/13 supported"
+    if [[ "$OSNAME" == "Debian" ]] && [[ ! "$OSVERSION" =~ ^(11|12|13)$ ]]; then
+        printfail "Only Debian 11/12/13 supported"
         exit 1
     fi
 
-    if [[ "$OSNAME" == "Ubuntu" ]] && [[ ! "$OSVERSION" =~ ^(20|22|24)$ ]]; then
-        printfail "Only Ubuntu 20/22/24 supported"
+    if [[ "$OSNAME" == "Ubuntu" ]] && [[ ! "$OSVERSION" =~ ^(22|24)$ ]]; then
+        printfail "Only Ubuntu 22/24 supported"
         exit 1
     fi
 
